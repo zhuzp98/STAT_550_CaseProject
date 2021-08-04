@@ -10,4 +10,5 @@ This Project is a repository for deliverables in STAT 550 at the University of B
 ## Who are involved in the project?
 
 Data provided by Dr. Roffey, Dr. Lefaivre and Dr. Larose
+
 Analyzed by Li Zha, Denghuang Zhan, Zhipeng Zhu
