@@ -24,15 +24,15 @@ library(rstatix)
 library(nlme)
 ```
 
-
 # Data Import
+
 ```{r}
 # data <- read_excel("Stat_Data.xlsx", skip = 1)
 # write.csv(data, "data.csv")
 ```
 
 ```{r}
-c1 <- read.csv("data/data.csv")
+c1 <- read.csv("../data/data.csv")
 ```
 
 ```{r}
@@ -54,7 +54,9 @@ c1 <- c1 %>%
 ```
 
 # Data Modifications
+
 ## Data Clean
+
 ```{r}
 # c1 removes the rows with all NA or all "0".
 c1 <- c1 %>% filter(!is.na(Total_3M) | !is.na(Total_6M) | !is.na(Total_1Y) | !is.na(Total_5Y)) %>%
@@ -62,6 +64,7 @@ c1 <- c1 %>% filter(!is.na(Total_3M) | !is.na(Total_6M) | !is.na(Total_1Y) | !is
 ```
 
 ## Data for LME
+
 ```{r}
 # C3 is for LME use, with at least two non-NA data points
 c3 <- c1 %>% filter((1*(is.na(Total_3M)) + 1*(is.na(Total_6M)) + 1*(is.na(Total_1Y)) + 1*(is.na(Total_5Y))) <= 2)
@@ -93,12 +96,14 @@ lme_longc3 %>% group_by(period) %>% count(is.na(Total_Baseline))
 ```
 
 ### LME plot
+
 ```{r, fig.height=20}
 fit.pre <- lmList(Total~ month|X, data = lme_longc3, na.action=na.exclude)
 plot(intervals(fit.pre))
 ```
 
 ## Data for EDA
+
 ```{r}
 # easyc1 removes some dates and some useless variables
 
@@ -134,8 +139,8 @@ longc2 <- easyc2 %>% pivot_longer(-c(X, MRN, Age.at.injury, Sex, ISS, CAD, Hyper
 longc2 %>% group_by(period) %>% count(is.na(Total))
 ```
 
-
 ### Baseline Removal
+
 ```{r}
 # rmBasec1 regulizes the Baseline scores and 
 # removes the Baseline records
@@ -174,7 +179,6 @@ rmBasec2 <- easyc2 %>%
                           Total_5Y = Total_5Y - Total_Baseline) %>%
   select(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, SubAbuse, Mental.illness, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure, Function_Baseline, Pain_Baseline, Total_Baseline, Function_3M, Pain_3M, Total_3M, Function_6M, Pain_6M, Total_6M, Function_1Y, Pain_1Y, Total_1Y, Function_5Y, Pain_5Y, Total_5Y)
 ```
-
 
 ```{r}
 # Calculate the score difference between periods
@@ -216,11 +220,13 @@ reglongc2 <- rmBasec2 %>%
 ```
 
 # EDA
+
 ## Histograms and Boxplots
+
 ```{r, fig.width=6, fig.height=4, results = 'hide'}
 easyc2 %>% ggplot(aes(x = Age.at.injury)) + 
   geom_histogram(aes(y = ..density..), binwidth = 5) + 
-  geom_density(col = 4, size = 1) + 
+  geom_density(col = 4, linewidth = 1) + 
   labs(title = "Histogram of Age at injury") +
   geom_vline(aes(xintercept = mean(Age.at.injury)), col = "red", size = 1)
 ```
@@ -248,6 +254,7 @@ new_reglongc2 <- anti_join(reglongc2, rm_reglongc2)
 ```
 
 ### Log Scale
+
 ```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
 new_reglongc2 %>% ggplot(aes(x = period, y = log(Total))) + 
   geom_boxplot() +
@@ -302,7 +309,6 @@ new_reglongc2 %>% ggplot(aes(y = log(Total), x = period, fill = as.factor(CAD)))
   scale_fill_discrete(name = "Heart Issues", labels = c("None", "Present"))
 ```
 
-
 ```{r, fig.width=4, fig.height=5, warning=FALSE, message=FALSE}
 new_reglongc2 %>% ggplot(aes(y = log(Total), x = period, fill = as.factor(Mental.illness))) +
   geom_boxplot() +
@@ -312,7 +318,6 @@ new_reglongc2 %>% ggplot(aes(y = log(Total), x = period, fill = as.factor(Mental
   theme(legend.position="bottom") +
   scale_fill_discrete(name = "Mental Issues", labels = c("None", "Present"))
 ```
-
 
 ```{r, fig.width=4, fig.height=5, warning=FALSE, message=FALSE}
 new_reglongc2 %>% ggplot(aes(y = log(Total), x = period, fill = as.factor(Diabetes))) +
@@ -335,6 +340,7 @@ new_reglongc2 %>% ggplot(aes(y = log(Total), x = period, fill = as.factor(Revisi
 ```
 
 ### Original Scale
+
 ```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
 new_reglongc2 %>% ggplot(aes(x = period, y = Total)) + 
   geom_boxplot() +
@@ -389,7 +395,6 @@ new_reglongc2 %>% ggplot(aes(y = Total, x = period, fill = as.factor(CAD))) +
   scale_fill_discrete(name = "Heart Issues", labels = c("None", "Present"))
 ```
 
-
 ```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
 new_reglongc2 %>% ggplot(aes(y = Total, x = period, fill = as.factor(Mental.illness))) +
   geom_boxplot() +
@@ -399,7 +404,6 @@ new_reglongc2 %>% ggplot(aes(y = Total, x = period, fill = as.factor(Mental.illn
   theme(legend.position="bottom") +
   scale_fill_discrete(name = "Mental Issues", labels = c("None", "Present"))
 ```
-
 
 ```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
 new_reglongc2 %>% ggplot(aes(y = Total, x = period, fill = as.factor(Diabetes))) +
@@ -431,6 +435,7 @@ new_reglongc2 %>% group_by(period, Revision.procedure) %>% summarise(Total = mea
 ```
 
 ## Tests on 5Y-1Y
+
 ```{r}
 rmDevice <- reglongc1 %>% select(X, period, Revision.procedure, Total)
 rmDevice1 <- ScoreDiff %>% select(X, Revision.procedure, Diff_5Y1Y)
@@ -465,6 +470,7 @@ prop.test(prop_mtx)
 ```
 
 ### Normality check
+
 ```{r, fig.width=10, fig.height=6, warning=FALSE, message=FALSE}
 
 modelDe <- lm(Diff_5Y1Y ~ Revision.procedure,
@@ -482,6 +488,7 @@ new_5Y1Y %>% group_by(Revision.procedure) %>%
 ```
 
 ### T Wilcoxon K-W
+
 ```{r, warning=FALSE, message=FALSE}
 t.test(Diff_5Y1Y ~ Revision.procedure, data = new_5Y1Y)
 wilcox.test(Diff_5Y1Y ~ Revision.procedure, data = new_5Y1Y)
@@ -493,6 +500,7 @@ new_5Y1Y %>%
 ```
 
 ## Tests on Periods
+
 ```{r, warning=FALSE, message=FALSE}
 # extreme values removed
 rm_df_period <- rmDevice %>% group_by(period, Revision.procedure) %>%
@@ -503,6 +511,7 @@ new_rm_p <- anti_join(rmDevice, rm_df_period)
 ```
 
 ### Normality Check
+
 ```{r, fig.width=10, fig.height=10, warning=FALSE, message=FALSE}
 model  <- lm(Total ~ period*Revision.procedure,
              data = new_rm_p)
@@ -524,6 +533,7 @@ ggqqplot(new_rm_p, "Total", ggtheme = theme_bw()) +
 ```
 
 ### T Wilconxon K-W
+
 ```{r, warning=FALSE, message=FALSE}
 model1 <- lm(Total ~ period * Revision.procedure, data = new_rm_p)
 new_rm_p %>%
@@ -544,6 +554,7 @@ new_rm_p %>%
 ```
 
 ## Summarized Analysis
+
 ```{r, warning=FALSE, message=FALSE}
 # Score difference between periods vs. MCID
 ScoreDiff %>% filter(part == "Total") %>% 
@@ -553,6 +564,7 @@ ScoreDiff %>% filter(part == "Total") %>%
             Crt_5Y6M = mean(abs(Crt_5Y6M), na.rm = TRUE), 
             Crt_5Y1Y = mean(abs(Crt_5Y1Y), na.rm = TRUE))
 ```
+
 ```{r, warning=FALSE, message=FALSE}
 # Counts
 ScoreDiff %>% filter(Crt_6M3M != 0) %>% count()
@@ -587,7 +599,6 @@ ScoreDiff %>% filter(part == "Total") %>% filter(!is.na(`1Y`)) %>% count()
 ScoreDiff %>% filter(part == "Total") %>% filter(`5Y` <= 11.5) %>% count()
 ScoreDiff %>% filter(part == "Total") %>% filter(!is.na(`5Y`)) %>% count()
 ```
-
 
 ```{r, warning=FALSE, message=FALSE}
 # proportion of recovery, by MCID and Removal of Device
