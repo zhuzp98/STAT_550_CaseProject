@@ -1,0 +1,650 @@
+---
+title: "Appendix: Code"
+author: "STAT 550 Project"
+output:
+  html_document:
+    theme: spacelab
+    toc: no
+    df_print: paged
+  pdf_document: default
+urlcolor: BrickRed
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval=FALSE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(nlme)
+library(rstatix)
+library(ggpubr)
+library(ggfortify)
+library(readxl)
+library(broom)
+library(tidyverse)
+```
+
+# Data Import
+
+```{r}
+# data <- read_excel("Stat_Data.xlsx", skip = 1)
+# write.csv(data, "data.csv")
+```
+
+```{r}
+c1 <- read.csv("./data/data.csv")
+```
+
+```{r}
+c1 <- c1 %>%
+  mutate(Sex = Sex, across(Sex, ~if_else(.=="F", 0, 1))) %>%
+  mutate(CAD = CAD, across(CAD, ~if_else(.=="None", 0, 1))) %>%
+  mutate(Hypertension = Hypertension, across(Hypertension, ~if_else(.=="None", 0, 1))) %>%
+  mutate(Osteoporosis = Osteoporosis, across(Osteoporosis, ~if_else(.=="None", 0, 1))) %>%
+  mutate(Diabetes = Diabetes, across(Diabetes, ~if_else(.=="None", 0, 1))) %>%
+  mutate(Substance.abuse = Substance.abuse, across(Substance.abuse, ~if_else(.=="None", 0, 1))) %>%
+  mutate(Alcohol.abuse = Alcohol.abuse, across(Alcohol.abuse, ~if_else(.=="None", 0, 1))) %>%
+  mutate(Depression = Depression, across(Depression, ~if_else(.=="None", 0, 1))) %>%
+  mutate(Anxiety.disorder = Anxiety.disorder, across(Anxiety.disorder, ~if_else(.=="None", 0, 1))) %>%
+  mutate(Psychosis = Psychosis, across(Psychosis, ~if_else(.=="None", 0, 1))) %>%
+  mutate(Malignancy = Malignancy, across(Malignancy, ~if_else(.=="None", 0, 1))) %>%
+  mutate(Stroke.TIA = Stroke.TIA, across(Stroke.TIA, ~if_else(.=="None", 0, 1))) %>%
+  mutate(Previous.orthopedic.trauma = Previous.orthopedic.trauma, across(Previous.orthopedic.trauma, ~if_else(.=="None", 0, 1))) %>%
+  mutate(Revision.procedure = Revision.procedure, across(Revision.procedure, ~if_else(.=="Removal of  device", 1, 0)))
+```
+
+# Data Modifications
+
+## Data Clean
+
+```{r}
+# c1 removes the rows with all NA or all "0".
+c1 <- c1 %>% dplyr::filter(!is.na(Total_3M) | !is.na(Total_6M) | !is.na(Total_1Y) | !is.na(Total_5Y)) %>%
+  dplyr::filter(Total_3M != 0 | Total_6M != 0 | Total_1Y != 0 | Total_5Y != 0)
+```
+
+## Data for LME
+
+```{r}
+# C3 is for LME use, with at least two non-NA data points
+c3 <- c1 %>% dplyr::filter((1*(is.na(Total_3M)) + 1*(is.na(Total_6M)) + 1*(is.na(Total_1Y)) + 1*(is.na(Total_5Y))) <= 2)
+```
+
+```{r}
+# regroup several attributes
+easyc3 <- c3 %>% 
+  select(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, Substance.abuse, Alcohol.abuse, Depression, Anxiety.disorder, Psychosis, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure, Function_Baseline, Pain_Baseline, Total_Baseline, Function_3M, Pain_3M, Total_3M, Function_6M, Pain_6M, Total_6M, Function_1Y, Pain_1Y, Total_1Y, Function_5Y, Pain_5Y, Total_5Y) %>%
+  mutate(SubAbuse = 1*((Substance.abuse + Alcohol.abuse)!=0), Mental.illness = 1*((Depression + Anxiety.disorder + Psychosis)!=0)) %>% 
+  select(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, SubAbuse, Mental.illness,
+         Malignancy, Stroke.TIA,
+         Previous.orthopedic.trauma, Revision.procedure, Function_Baseline, Pain_Baseline, Total_Baseline,
+         Function_3M, Pain_3M, Total_3M, Function_6M, Pain_6M, Total_6M, Function_1Y, Pain_1Y, Total_1Y,
+         Function_5Y, Pain_5Y, Total_5Y)
+```
+
+```{r}
+# longer form of easyc3
+longc3 <- easyc3 %>% pivot_longer(-c(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, SubAbuse, Mental.illness, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure, Function_Baseline, Pain_Baseline, Total_Baseline), names_to = c(".value", "period"), names_sep = "_") %>%
+  mutate(month = period, across(month, ~if_else(.=="3M", 3, if_else(.=="6M", 6, if_else(.=="1Y", 12, 60)))))
+```
+
+```{r}
+# delete NA for lme use.
+# Count missing values
+lme_longc3 <- longc3 %>% drop_na(Total)
+lme_longc3 %>% group_by(period) %>% count(is.na(Total_Baseline)) 
+```
+
+### LME plot
+
+```{r, fig.height=20}
+fit.pre <- lmList(Total~ month|X, data = lme_longc3, na.action=na.exclude)
+plot(intervals(fit.pre))
+```
+
+## Data for EDA
+
+```{r}
+# easyc1 removes some dates and some useless variables
+
+easyc1 <- c1 %>% select(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, Substance.abuse, Alcohol.abuse, Depression, Anxiety.disorder, Psychosis, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure, Function_Baseline, Pain_Baseline, Total_Baseline, Function_3M, Pain_3M, Total_3M, Function_6M, Pain_6M, Total_6M, Function_1Y, Pain_1Y, Total_1Y, Function_5Y, Pain_5Y, Total_5Y)
+```
+
+```{r}
+# Combine some general categories
+
+easyc2 <- easyc1 %>% 
+  mutate(SubAbuse = 1*((Substance.abuse + Alcohol.abuse)!=0), Mental.illness = 1*((Depression + Anxiety.disorder + Psychosis)!=0)) %>% 
+  select(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, SubAbuse, Mental.illness,
+         Malignancy, Stroke.TIA,
+         Previous.orthopedic.trauma, Revision.procedure, Function_Baseline, Pain_Baseline, Total_Baseline,
+         Function_3M, Pain_3M, Total_3M, Function_6M, Pain_6M, Total_6M, Function_1Y, Pain_1Y, Total_1Y,
+         Function_5Y, Pain_5Y, Total_5Y)
+```
+
+```{r}
+# longc1 is the longer form of easyc1
+
+longc1 <- easyc1 %>% pivot_longer(-c(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, Substance.abuse, Alcohol.abuse, Depression, Anxiety.disorder, Psychosis, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure), names_to = c(".value", "period"), names_sep = "_")
+```
+
+```{r}
+# Long form of combined data
+
+longc2 <- easyc2 %>% pivot_longer(-c(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, SubAbuse, Mental.illness, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure), names_to = c(".value", "period"), names_sep = "_")
+```
+
+```{r}
+# Missing Value Stat
+longc2 %>% group_by(period) %>% count(is.na(Total))
+```
+
+### Baseline Removal
+
+```{r}
+# rmBasec1 regulizes the Baseline scores and 
+# removes the Baseline records
+
+rmBasec1 <- easyc1 %>% 
+  mutate(Function_3M = Function_3M - Function_Baseline,
+                          Pain_3M = Pain_3M - Pain_Baseline,
+                          Total_3M = Total_3M - Total_Baseline,
+                          Function_6M = Function_6M - Function_Baseline,
+                          Pain_6M = Pain_6M - Pain_Baseline,
+                          Total_6M = Total_6M - Total_Baseline,
+                          Function_1Y = Function_1Y - Function_Baseline,
+                          Pain_1Y = Pain_1Y - Pain_Baseline,
+                          Total_1Y = Total_1Y - Total_Baseline,
+                          Function_5Y = Function_5Y - Function_Baseline,
+                          Pain_5Y = Pain_5Y - Pain_Baseline,
+                          Total_5Y = Total_5Y - Total_Baseline) %>%
+  select(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, Substance.abuse, Alcohol.abuse, Depression, Anxiety.disorder, Psychosis, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure, Function_Baseline, Pain_Baseline, Total_Baseline, Function_3M, Pain_3M, Total_3M, Function_6M, Pain_6M, Total_6M, Function_1Y, Pain_1Y, Total_1Y, Function_5Y, Pain_5Y, Total_5Y)
+```
+
+```{r}
+# Remove baseline from combined data
+
+rmBasec2 <- easyc2 %>% 
+  mutate(Function_3M = Function_3M - Function_Baseline,
+                          Pain_3M = Pain_3M - Pain_Baseline,
+                          Total_3M = Total_3M - Total_Baseline,
+                          Function_6M = Function_6M - Function_Baseline,
+                          Pain_6M = Pain_6M - Pain_Baseline,
+                          Total_6M = Total_6M - Total_Baseline,
+                          Function_1Y = Function_1Y - Function_Baseline,
+                          Pain_1Y = Pain_1Y - Pain_Baseline,
+                          Total_1Y = Total_1Y - Total_Baseline,
+                          Function_5Y = Function_5Y - Function_Baseline,
+                          Pain_5Y = Pain_5Y - Pain_Baseline,
+                          Total_5Y = Total_5Y - Total_Baseline) %>%
+  select(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, SubAbuse, Mental.illness, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure, Function_Baseline, Pain_Baseline, Total_Baseline, Function_3M, Pain_3M, Total_3M, Function_6M, Pain_6M, Total_6M, Function_1Y, Pain_1Y, Total_1Y, Function_5Y, Pain_5Y, Total_5Y)
+```
+
+```{r}
+# Calculate the score difference between periods
+
+ScoreDiff <- rmBasec1 %>%
+  select(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, Substance.abuse, Alcohol.abuse, Depression, Anxiety.disorder, Psychosis, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure, Function_3M, Pain_3M, Total_3M, Function_6M, Pain_6M, Total_6M, Function_1Y, Pain_1Y, Total_1Y, Function_5Y, Pain_5Y, Total_5Y) %>%
+  pivot_longer(-c(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, Substance.abuse, Alcohol.abuse, Depression, Anxiety.disorder, Psychosis, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure), names_to = c("part", ".value"), names_sep = "_") %>%
+  mutate(Diff_6M3M = `6M` - `3M`,
+         Diff_1Y3M = `1Y` - `3M`,
+         Diff_1Y6M = `1Y` - `6M`,
+         Diff_5Y6M = `5Y` - `6M`,
+         Diff_5Y1Y = `5Y` - `1Y`) %>%
+  mutate(Crt_6M3M = Diff_6M3M, 
+         across(Crt_6M3M, ~if_else(.<=(-11.5), 1, if_else(.>=11.5, -1, 0))),
+         Crt_1Y3M = Diff_1Y3M,
+         across(Crt_1Y3M, ~if_else(.<=(-11.5), 1, if_else(.>=11.5, -1, 0))),
+         Crt_1Y6M = Diff_1Y6M, 
+         across(Crt_1Y6M, ~if_else(.<=(-11.5), 1, if_else(.>=11.5, -1, 0))),
+         Crt_5Y6M = Diff_5Y6M, 
+         across(Crt_5Y6M, ~if_else(.<=(-11.5), 1, if_else(.>=11.5, -1, 0))),
+         Crt_5Y1Y = Diff_5Y1Y, 
+         across(Crt_5Y1Y, ~if_else(.<=(-11.5), 1, if_else(.>=11.5, -1, 0))))
+```
+
+```{r}
+# reglongc1 is the long form of rmBasec1
+
+reglongc1 <- rmBasec1 %>% 
+  select(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, Substance.abuse, Alcohol.abuse, Depression, Anxiety.disorder, Psychosis, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure, Function_3M, Pain_3M, Total_3M, Function_6M, Pain_6M, Total_6M, Function_1Y, Pain_1Y, Total_1Y, Function_5Y, Pain_5Y, Total_5Y) %>%
+  pivot_longer(-c(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, Substance.abuse, Alcohol.abuse, Depression, Anxiety.disorder, Psychosis, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure), names_to = c(".value", "period"), names_sep = "_")
+```
+
+```{r}
+# reglongc2 is the long form of rmBasec2
+
+reglongc2 <- rmBasec2 %>% 
+  select(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, SubAbuse, Mental.illness, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure, Function_3M, Pain_3M, Total_3M, Function_6M, Pain_6M, Total_6M, Function_1Y, Pain_1Y, Total_1Y, Function_5Y, Pain_5Y, Total_5Y) %>%
+  pivot_longer(-c(X, MRN, Age.at.injury, Sex, ISS, CAD, Hypertension, Osteoporosis, Diabetes, SubAbuse, Mental.illness, Malignancy, Stroke.TIA, Previous.orthopedic.trauma, Revision.procedure), names_to = c(".value", "period"), names_sep = "_")
+```
+
+# EDA
+
+## Histograms and Boxplots
+
+```{r, fig.width=6, fig.height=4, results = 'hide'}
+easyc2 %>% ggplot(aes(x = Age.at.injury)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 5) + 
+  geom_density(col = 4, linewidth = 1) + 
+  labs(title = "Histogram of Age at injury") +
+  geom_vline(aes(xintercept = mean(Age.at.injury)), col = "red", size = 1)
+```
+
+```{r}
+# allocate levels of factor `period`
+
+longc1$period <- factor(longc1$period, levels= c("Baseline", "3M", "6M", "1Y", "5Y"))
+
+reglongc1$period <- factor(reglongc1$period, levels= c("3M", "6M", "1Y", "5Y"))
+
+longc2$period <- factor(longc2$period, levels= c("Baseline", "3M", "6M", "1Y", "5Y"))
+
+reglongc2$period <- factor(reglongc2$period, levels= c("3M", "6M", "1Y", "5Y"))
+```
+
+```{r, warning=FALSE, message=FALSE}
+# Find the extreme values and remove from dataset
+rm_reglongc2 <- reglongc2 %>% select(X, period, Total) %>%
+  group_by(period) %>%
+  identify_outliers(Total) %>%
+  filter(is.extreme == TRUE)
+
+new_reglongc2 <- anti_join(reglongc2, rm_reglongc2)
+```
+
+### Log Scale
+
+```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(x = period, y = log(Total))) + 
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score (log)") +
+  ggtitle("Total Score vs. PRWE Period") 
+```
+
+```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(x = period, y = log(Pain))) + 
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score (log)") +
+  ggtitle("Pain Score vs. PRWE Period")
+```
+
+```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(x = period, y = log(Function))) + 
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score (log)") +
+  ggtitle("Function Score vs. PRWE Period")
+```
+
+```{r, fig.width=4, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(y = log(Total), x = period, fill = as.factor(Sex))) +
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score (log)") +
+  ggtitle("Effects on Total Score by Sex") +
+  theme(legend.position="bottom") +
+  scale_fill_discrete(name = "Sex", labels = c("Female", "Male"))
+```
+
+```{r, fig.width=4, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(y = log(Total), x = period, fill = as.factor(SubAbuse))) +
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score (log)") +
+  ggtitle("Effects on Total Score by SubstanceAbuse") +
+  theme(legend.position="bottom") +
+  scale_fill_discrete(name = "Substance Abuse", labels = c("None", "Present"))
+```
+
+```{r, fig.width=4, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(y = log(Total), x = period, fill = as.factor(CAD))) +
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score (log)") +
+  ggtitle("Effects on Total Score by Heart Issues") +
+  theme(legend.position="bottom") +
+  scale_fill_discrete(name = "Heart Issues", labels = c("None", "Present"))
+```
+
+```{r, fig.width=4, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(y = log(Total), x = period, fill = as.factor(Mental.illness))) +
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score (log)") +
+  ggtitle("Effects on Total Score by Mental Illness") +
+  theme(legend.position="bottom") +
+  scale_fill_discrete(name = "Mental Issues", labels = c("None", "Present"))
+```
+
+```{r, fig.width=4, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(y = log(Total), x = period, fill = as.factor(Diabetes))) +
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score (log)") +
+  ggtitle("Effects on Total Score by Diabetes") +
+  theme(legend.position="bottom") +
+  scale_fill_discrete(name = "Diabetes", labels = c("None", "Present"))
+```
+
+```{r, fig.width=8, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(y = log(Total), x = period, fill = as.factor(Revision.procedure))) +
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score (log)") +
+  ggtitle("Effects on Total Score by Removal of device") +
+  theme(legend.position="bottom") +
+  scale_fill_discrete(name = "Removal of device", labels = c("No", "Yes"))
+```
+
+### Original Scale
+
+```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(x = period, y = Total)) + 
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score") +
+  ggtitle("Total Score vs. PRWE Period") 
+```
+
+```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(x = period, y = Pain)) + 
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score") +
+  ggtitle("Pain Score vs. PRWE Period")
+```
+
+```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(x = period, y = Function)) + 
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score") +
+  ggtitle("Function Score vs. PRWE Period")
+```
+
+```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(y = Total, x = period, fill = as.factor(Sex))) +
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score") +
+  ggtitle("Effects on Total Score by Sex") +
+  theme(legend.position="bottom") +
+  scale_fill_discrete(name = "Sex", labels = c("Female", "Male"))
+```
+
+```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(y = Total, x = period, fill = as.factor(SubAbuse))) +
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score") +
+  ggtitle("Effects on Total Score by SubstanceAbuse") +
+  theme(legend.position="bottom") +
+  scale_fill_discrete(name = "Substance Abuse", labels = c("None", "Present"))
+```
+
+```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(y = Total, x = period, fill = as.factor(CAD))) +
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score") +
+  ggtitle("Effects on Total Score by Heart Issues") +
+  theme(legend.position="bottom") +
+  scale_fill_discrete(name = "Heart Issues", labels = c("None", "Present"))
+```
+
+```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(y = Total, x = period, fill = as.factor(Mental.illness))) +
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score") +
+  ggtitle("Effects on Total Score by Mental Illness") +
+  theme(legend.position="bottom") +
+  scale_fill_discrete(name = "Mental Issues", labels = c("None", "Present"))
+```
+
+```{r, fig.width=5, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(y = Total, x = period, fill = as.factor(Diabetes))) +
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score") +
+  ggtitle("Effects on Total Score by Diabetes") +
+  theme(legend.position="bottom") +
+  scale_fill_discrete(name = "Diabetes", labels = c("None", "Present"))
+```
+
+```{r, fig.width=8, fig.height=5, warning=FALSE, message=FALSE}
+new_reglongc2 %>% ggplot(aes(y = Total, x = period, fill = as.factor(Revision.procedure))) +
+  geom_boxplot() +
+  xlab("PRWE Period") +
+  ylab("Total Score") +
+  ggtitle("Effects on Total Score by Removal of device") +
+  theme(legend.position="bottom") +
+  scale_fill_discrete(name = "Removal of device", labels = c("No", "Yes"))
+```
+
+```{r, fig.width=10, fig.height=6, warning=FALSE, message=FALSE}
+new_reglongc2 %>% group_by(period, Revision.procedure) %>% summarise(Total = mean(Total, na.rm = TRUE), n = n()) %>% 
+  ggplot(aes(y = Total, x = period, col = as.factor(Revision.procedure))) +
+  geom_point(size = 4) +
+  xlab("PRWE Period") +
+  ylab("Total Score") +
+  ggtitle("Average Total Score by Removal of device")
+```
+
+## Tests on 5Y-1Y
+
+```{r}
+rmDevice <- reglongc1 %>% select(X, period, Revision.procedure, Total)
+rmDevice1 <- ScoreDiff %>% select(X, Revision.procedure, Diff_5Y1Y)
+```
+
+```{r, warning=FALSE, message=FALSE}
+# extreme values removed
+rm_df_51 <- rmDevice1 %>% 
+  group_by(Revision.procedure) %>%
+  identify_outliers(Diff_5Y1Y) %>%
+  filter(is.extreme == TRUE) %>%
+  select(Revision.procedure, X, Diff_5Y1Y)
+
+new_5Y1Y <- anti_join(rmDevice1, rm_df_51)
+prop_5Y1Y <- new_5Y1Y %>% mutate(recovery = Diff_5Y1Y, across(recovery, ~if_else(.<= 11.5, 1, 0)))
+```
+
+```{r, warning=FALSE, message=FALSE}
+# counts
+prop_5Y1Y %>% filter(Revision.procedure == 0, recovery == 0) %>% count()
+prop_5Y1Y %>% filter(Revision.procedure == 0, recovery == 1) %>% count()
+prop_5Y1Y %>% filter(Revision.procedure == 1, recovery == 0) %>% count()
+prop_5Y1Y %>% filter(Revision.procedure == 1, recovery == 1) %>% count()
+```
+
+```{r, warning=FALSE, message=FALSE}
+# proportion test
+prop_mtx <- rbind(c(569, 15), c(63, 2))
+chisq.test(prop_mtx, correct = FALSE)
+fisher.test(prop_mtx)
+prop.test(prop_mtx)
+```
+
+### Normality check
+
+```{r, fig.width=10, fig.height=6, warning=FALSE, message=FALSE}
+
+modelDe <- lm(Diff_5Y1Y ~ Revision.procedure,
+             data = new_5Y1Y)
+ggqqplot(residuals(modelDe))
+```
+
+```{r, warning=FALSE, message=FALSE}
+shapiro_test(residuals(modelDe))
+```
+
+```{r, warning=FALSE, message=FALSE}
+new_5Y1Y %>% group_by(Revision.procedure) %>%
+  shapiro_test(Diff_5Y1Y)
+```
+
+### T Wilcoxon K-W
+
+```{r, warning=FALSE, message=FALSE}
+t.test(Diff_5Y1Y ~ Revision.procedure, data = new_5Y1Y)
+wilcox.test(Diff_5Y1Y ~ Revision.procedure, data = new_5Y1Y)
+new_5Y1Y %>%
+  kruskal.test(Diff_5Y1Y ~ Revision.procedure)
+
+-1.771404+2.700000 
+((1.000074 + 2.857266)/2)/qnorm(0.975)
+```
+
+## Tests on Periods
+
+```{r, warning=FALSE, message=FALSE}
+# extreme values removed
+rm_df_period <- rmDevice %>% group_by(period, Revision.procedure) %>%
+  identify_outliers(Total) %>%
+  filter(is.extreme == TRUE) %>%
+  select(X, period, Revision.procedure, Total)
+new_rm_p <- anti_join(rmDevice, rm_df_period)
+```
+
+### Normality Check
+
+```{r, fig.width=10, fig.height=10, warning=FALSE, message=FALSE}
+model  <- lm(Total ~ period*Revision.procedure,
+             data = new_rm_p)
+ggqqplot(residuals(model))
+```
+
+```{r, warning=FALSE, message=FALSE}
+shapiro_test(residuals(model))
+```
+
+```{r, warning=FALSE, message=FALSE}
+new_rm_p %>% group_by(period, Revision.procedure) %>%
+  shapiro_test(Total)
+```
+
+```{r, fig.width=10, fig.height=10, warning=FALSE, message=FALSE}
+ggqqplot(new_rm_p, "Total", ggtheme = theme_bw()) +
+  facet_grid(Revision.procedure ~ period)
+```
+
+### T Wilconxon K-W
+
+```{r, warning=FALSE, message=FALSE}
+model1 <- lm(Total ~ period * Revision.procedure, data = new_rm_p)
+new_rm_p %>%
+  group_by(period) %>%
+  t_test(Total ~ Revision.procedure)
+```
+
+```{r, warning=FALSE, message=FALSE}
+new_rm_p %>%
+  group_by(period) %>%
+  wilcox_test(Total ~ Revision.procedure)
+```
+
+```{r, warning=FALSE, message=FALSE}
+new_rm_p %>%
+  group_by(period) %>% 
+  kruskal_test(Total ~ Revision.procedure)
+```
+
+## Summarized Analysis
+
+```{r, warning=FALSE, message=FALSE}
+# Score difference between periods vs. MCID
+ScoreDiff %>% filter(part == "Total") %>% 
+  summarise(Crt_6M3M = mean(abs(Crt_6M3M), na.rm = TRUE),
+            Crt_1Y3M = mean(abs(Crt_1Y3M), na.rm = TRUE), 
+            Crt_1Y6M = mean(abs(Crt_1Y6M), na.rm = TRUE), 
+            Crt_5Y6M = mean(abs(Crt_5Y6M), na.rm = TRUE), 
+            Crt_5Y1Y = mean(abs(Crt_5Y1Y), na.rm = TRUE))
+```
+
+```{r, warning=FALSE, message=FALSE}
+# Counts
+ScoreDiff %>% filter(Crt_6M3M != 0) %>% count()
+ScoreDiff %>% filter(!is.na(Crt_6M3M)) %>% count()
+ScoreDiff %>% filter(Crt_1Y3M != 0) %>% count()
+ScoreDiff %>% filter(!is.na(Crt_1Y3M)) %>% count()
+ScoreDiff %>% filter(Crt_1Y6M != 0) %>% count()
+ScoreDiff %>% filter(!is.na(Crt_1Y6M)) %>% count()
+ScoreDiff %>% filter(Crt_5Y6M != 0) %>% count()
+ScoreDiff %>% filter(!is.na(Crt_5Y6M)) %>% count()
+ScoreDiff %>% filter(Crt_5Y1Y != 0) %>% count()
+ScoreDiff %>% filter(!is.na(Crt_5Y1Y)) %>% count()
+```
+
+```{r, warning=FALSE, message=FALSE}
+# Recovery rate, by MCID
+ScoreDiff %>% filter(part == "Total") %>% 
+  summarise(`3M` = mean(`3M` <= 11.5, na.rm = TRUE), 
+            `6M` = mean(`6M` <= 11.5, na.rm = TRUE), 
+            `1Y` = mean(`1Y` <= 11.5, na.rm = TRUE), 
+            `5Y` = mean(`5Y` <= 11.5, na.rm = TRUE))
+```
+
+```{r, warning=FALSE, message=FALSE}
+# Counts
+ScoreDiff %>% filter(part == "Total") %>% filter(`3M` <= 11.5) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% filter(!is.na(`3M`)) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% filter(`6M` <= 11.5) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% filter(!is.na(`6M`)) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% filter(`1Y` <= 11.5) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% filter(!is.na(`1Y`)) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% filter(`5Y` <= 11.5) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% filter(!is.na(`5Y`)) %>% count()
+```
+
+```{r, warning=FALSE, message=FALSE}
+# proportion of recovery, by MCID and Removal of Device
+ScoreDiff %>% filter(part == "Total") %>% group_by(Revision.procedure) %>%
+  summarise(`3M` = mean(`3M` <= 11.5, na.rm = TRUE), 
+            `6M` = mean(`6M` <= 11.5, na.rm = TRUE), 
+            `1Y` = mean(`1Y` <= 11.5, na.rm = TRUE), 
+            `5Y` = mean(`5Y` <= 11.5, na.rm = TRUE))
+```
+
+```{r, warning=FALSE, message=FALSE}
+# Counts
+ScoreDiff %>% filter(part == "Total") %>% group_by(Revision.procedure) %>% filter(`3M` <= 11.5) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% group_by(Revision.procedure) %>% filter(!is.na(`3M`)) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% group_by(Revision.procedure) %>% filter(`6M` <= 11.5) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% group_by(Revision.procedure) %>% filter(!is.na(`6M`)) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% group_by(Revision.procedure) %>% filter(`1Y` <= 11.5) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% group_by(Revision.procedure) %>% filter(!is.na(`1Y`)) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% group_by(Revision.procedure) %>% filter(`5Y` <= 11.5) %>% count()
+ScoreDiff %>% filter(part == "Total") %>% group_by(Revision.procedure) %>% filter(!is.na(`5Y`)) %>% count()
+```
+
+```{r, warning=FALSE, message=FALSE}
+prop_mtx <- rbind(c(36, 85), c(2, 14))
+chisq.test(prop_mtx, correct = FALSE)
+fisher.test(prop_mtx)
+prop_test(prop_mtx)
+```
+
+```{r, warning=FALSE, message=FALSE}
+prop_mtx <- rbind(c(150, 169), c(12, 22))
+chisq.test(prop_mtx, correct = FALSE)
+fisher.test(prop_mtx)
+prop_test(prop_mtx)
+```
+
+```{r, warning=FALSE, message=FALSE}
+prop_mtx <- rbind(c(165, 97), c(15, 16))
+chisq.test(prop_mtx, correct = FALSE)
+fisher.test(prop_mtx)
+prop_test(prop_mtx)
+```
+
+```{r, warning=FALSE, message=FALSE}
+prop_mtx <- rbind(c(192, 58), c(20, 6))
+chisq.test(prop_mtx, correct = FALSE)
+fisher.test(prop_mtx)
+prop_test(prop_mtx)
+```

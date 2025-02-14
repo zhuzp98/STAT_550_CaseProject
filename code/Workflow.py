@@ -1,145 +1,152 @@
-# %% [markdown]
-# # 骨科康复数据分析工作流
-# 基于STAT 550项目R分析报告的Python复现版本
-
-# %% [markdown]
-# ## 环境配置
-# 首次运行前安装依赖：  
-# `pip install pandas numpy seaborn statsmodels plotly scikit-learn`
-
-# %%
-# 基础库
+# Import required packages
 import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-# %matplotlib inline
-
-# 统计建模
-from statsmodels.formula.api import mixedlm
-from scipy import stats
-
-# 交互可视化
+from statsmodels.regression.mixed_linear_model import MixedLM
 import plotly.express as px
+import plotly.graph_objects as go
 
-print("所有依赖库已就绪")
+# Set plotting style
+sns.set_theme()  # This sets the default seaborn theme
 
-# %% [markdown]
-# ## 1. 数据准备
-# ### 1.1 数据导入与清洗
+# Data Import
+# Read the CSV file with index_col=0 to use the first column as index
+c1 = pd.read_csv("./data/data.csv", index_col=0)
+c1 = c1.reset_index().rename(columns={'index': 'X'})  # Convert index to column named 'X'
 
-# %%
-# 读取数据
-try:
-    c1 = pd.read_csv("./data/data.csv")
-    # 统一列名
-    c1 = c1.rename(columns={
-        'MRN': 'PatientID',
-        'Age at injury': 'Age'
-    })
-    print(f"成功加载数据，维度：{c1.shape}")
-except Exception as e:
-    print(f"数据加载失败：{str(e)}")
+# OR alternatively:
+# c1 = pd.read_csv("./data/data.csv")
+# c1 = c1.rename(columns={'Unnamed: 0': 'X'})  # Rename the unnamed first column to 'X'
 
-# 二值化转换
-binary_map = {
-    'Sex': {'F':0, 'M':1},
-    'CAD': {'None':0, 'Yes':1},
-    'Revision procedure': {'Removal of device':1, 'None':0}
+# Rename columns to match R version
+column_mapping = {
+    'Age at injury': 'Age_at_injury',
+    'Substance abuse': 'Substance_abuse',
+    'Alcohol abuse': 'Alcohol_abuse',
+    'Anxiety disorder': 'Anxiety_disorder',
+    'Previous orthopedic trauma': 'Previous_orthopedic_trauma',
+    'Stroke/TIA': 'Stroke_TIA',
+    'Revision procedure': 'Revision_procedure'
 }
+c1 = c1.rename(columns=column_mapping)
 
-for col, mapping in binary_map.items():
-    c1[col] = c1[col].map(mapping).fillna(0).astype(int)
+# Convert binary categories to 0/1
+binary_cols = ['Sex', 'CAD', 'Hypertension', 'Osteoporosis', 'Diabetes', 
+               'Substance_abuse', 'Alcohol_abuse', 'Depression', 'Anxiety_disorder',
+               'Psychosis', 'Malignancy', 'Stroke_TIA', 'Previous_orthopedic_trauma']
 
-# 数据清洗
-time_cols = ['Total_3M', 'Total_6M', 'Total_1Y', 'Total_5Y']
-c1 = c1.dropna(subset=time_cols, how='all')  # 保留至少一个时间点数据
-c1 = c1[(c1[time_cols] != 0).any(axis=1)]     # 排除全零记录
+# Convert Sex F->0, M->1, and others None->0, Present->1
+c1['Sex'] = (c1['Sex'] == 'M').astype(int)
+for col in binary_cols[1:]:
+    c1[col] = (c1[col] != 'None').astype(int)
 
-print(f"清洗后数据维度：{c1.shape}")
+# Special case for Revision_procedure
+c1['Revision_procedure'] = (c1['Revision_procedure'] == 'Removal of  device').astype(int)
 
-# %% [markdown]
-# ## 2. 数据重构
-# ### 2.1 创建分析数据集
+# Data Clean
+# Remove rows where all Total scores are NA or 0
+total_cols = ['Total_3M', 'Total_6M', 'Total_1Y', 'Total_5Y']
+c1 = c1[~(c1[total_cols].isna().all(axis=1) | (c1[total_cols] == 0).all(axis=1))]
 
-# %%
-# 创建复合变量
-c1['SubAbuse'] = (c1['Substance abuse'] + c1['Alcohol abuse']).clip(upper=1)
-# 转换三列心理疾病指标为数值型
-c1['Mental illness'] = c1[['Depression', 'Anxiety disorder', 'Psychosis']].apply(
-    pd.to_numeric, errors='coerce'  # 将无效值转为NaN
-).max(axis=1)
+# Data for LME
+# Filter for at least two non-NA data points
+c3 = c1[c1[total_cols].isna().sum(axis=1) <= 2].copy()
 
-# 长格式转换后清理 NaN 值
-long_df = c1.melt(
-    id_vars=['PatientID', 'Age', 'Sex', 'Revision procedure'],
-    value_vars=time_cols,
-    var_name='period',
-    value_name='Total'
-)
+# Create easyc3 with regrouped attributes
+cols_to_keep = ['X', 'MRN', 'Age_at_injury', 'Sex', 'ISS', 'CAD', 'Hypertension', 
+                'Osteoporosis', 'Diabetes', 'Substance_abuse', 'Alcohol_abuse',
+                'Depression', 'Anxiety_disorder', 'Psychosis', 'Malignancy', 
+                'Stroke_TIA', 'Previous_orthopedic_trauma', 'Revision_procedure',
+                'Function_Baseline', 'Pain_Baseline', 'Total_Baseline',
+                'Function_3M', 'Pain_3M', 'Total_3M', 'Function_6M', 'Pain_6M', 
+                'Total_6M', 'Function_1Y', 'Pain_1Y', 'Total_1Y',
+                'Function_5Y', 'Pain_5Y', 'Total_5Y']
 
-# 时间段映射
-period_map = {'Total_3M':3, 'Total_6M':6, 'Total_1Y':12, 'Total_5Y':60}
-long_df['month'] = long_df['period'].map(period_map)
+easyc3 = c3[cols_to_keep].copy()
 
-# 删除含有 NaN 值的行
-long_df = long_df.dropna(subset=['Total'])
+# Create combined categories
+easyc3['SubAbuse'] = ((easyc3['Substance_abuse'] + easyc3['Alcohol_abuse']) != 0).astype(int)
+easyc3['Mental_illness'] = ((easyc3['Depression'] + easyc3['Anxiety_disorder'] + 
+                            easyc3['Psychosis']) != 0).astype(int)
 
-print("长格式数据样例：")
-print(long_df.head())
+# Select final columns for easyc3
+final_cols = ['X', 'MRN', 'Age_at_injury', 'Sex', 'ISS', 'CAD', 'Hypertension',
+              'Osteoporosis', 'Diabetes', 'SubAbuse', 'Mental_illness',
+              'Malignancy', 'Stroke_TIA', 'Previous_orthopedic_trauma', 
+              'Revision_procedure', 'Function_Baseline', 'Pain_Baseline', 
+              'Total_Baseline'] + [col for col in easyc3.columns 
+                                  if any(x in col for x in ['_3M', '_6M', '_1Y', '_5Y'])]
 
-# %% [markdown]
-# ## 3. 探索性分析（EDA）
-# ### 3.1 数据分布可视化
+easyc3 = easyc3[final_cols]
 
-# %%
-plt.figure(figsize=(10,6))
-sns.histplot(data=long_df, x='Total', hue='period', element='step', kde=True)
-plt.title('不同时期总分分布')
+# Create long format data
+id_vars = ['X', 'MRN', 'Age_at_injury', 'Sex', 'ISS', 'CAD', 'Hypertension',
+           'Osteoporosis', 'Diabetes', 'SubAbuse', 'Mental_illness',
+           'Malignancy', 'Stroke_TIA', 'Previous_orthopedic_trauma',
+           'Revision_procedure', 'Function_Baseline', 'Pain_Baseline', 'Total_Baseline']
+
+longc3 = pd.wide_to_long(easyc3, 
+                        stubnames=['Function', 'Pain', 'Total'],
+                        i=id_vars,
+                        j='period',
+                        suffix='_(3M|6M|1Y|5Y)',
+                        sep='').reset_index()
+
+# Convert period to months
+period_to_months = {'3M': 3, '6M': 6, '1Y': 12, '5Y': 60}
+longc3['month'] = longc3['period'].map(period_to_months)
+
+# Create lme_longc3 by dropping NA values
+lme_longc3 = longc3.dropna(subset=['Total'])
+
+# LME Plot function
+def plot_individual_slopes():
+    fig = plt.figure(figsize=(10, 20))
+    
+    # Fit individual linear models for each subject
+    subjects = lme_longc3['X'].unique()
+    coefficients = []
+    
+    print(f"Total number of subjects: {len(subjects)}")
+    
+    for subject in subjects:
+        subject_data = lme_longc3[lme_longc3['X'] == subject]
+        if len(subject_data) >= 2:  # Need at least 2 points for regression
+            X = subject_data['month'].values.reshape(-1, 1)
+            y = subject_data['Total'].values
+            try:
+                slope, intercept = np.polyfit(X.ravel(), y, 1)
+                coefficients.append({'subject': subject, 'slope': slope, 
+                                   'intercept': intercept})
+            except Exception as e:
+                print(f"Error fitting subject {subject}: {e}")
+                continue
+    
+    print(f"Number of successful fits: {len(coefficients)}")
+    
+    # Check if we have any coefficients before plotting
+    if len(coefficients) > 0:
+        # Plot individual regression lines
+        coef_df = pd.DataFrame(coefficients)
+        
+        plt.scatter(coef_df['intercept'], coef_df['slope'], alpha=0.5)
+        plt.xlabel('Intercept')
+        plt.ylabel('Slope')
+        plt.title('Individual Regression Coefficients')
+    else:
+        plt.text(0.5, 0.5, 'No valid regression coefficients found', 
+                horizontalalignment='center', verticalalignment='center')
+    
+    return plt
+
+# Let's also check the data before plotting
+print("\nShape of lme_longc3:", lme_longc3.shape)
+print("\nFirst few rows of lme_longc3:")
+print(lme_longc3.head())
+print("\nNumber of measurements per subject:")
+print(lme_longc3.groupby('X').size())
+
+# Create the plot
+lme_plot = plot_individual_slopes()
 plt.show()
-
-# %%
-fig = px.box(long_df, x='period', y='Total', color='Sex',
-             title='性别对康复评分的影响')
-fig.show()
-
-# %% [markdown]
-# ## 4. 混合效应模型
-# ### 4.1 模型构建
-
-# %%
-model = mixedlm("Total ~ month", data=long_df, 
-                groups=long_df["PatientID"]).fit()
-print(model.summary())
-
-# %% [markdown]
-# ## 5. 统计检验
-# ### 5.1 设备移除效果分析
-
-# %%
-# 准备对比数据
-device_group = long_df.groupby(['PatientID', 'Revision procedure'])['Total'].mean().reset_index()
-
-# 检查每组样本量
-n_control = len(device_group[device_group['Revision procedure']==0])
-n_removal = len(device_group[device_group['Revision procedure']==1])
-print(f"对照组样本量: {n_control}, 设备移除组样本量: {n_removal}")
-
-# 只在样本量足够时进行T检验
-if n_control > 0 and n_removal > 0:
-    t_stat, p_value = stats.ttest_ind(
-        device_group.loc[device_group['Revision procedure']==0, 'Total'],
-        device_group.loc[device_group['Revision procedure']==1, 'Total'],
-        equal_var=False
-    )
-    print(f"设备移除组 vs 对照组：\nT统计量: {t_stat:.2f}, P值: {p_value:.4f}")
-else:
-    print("样本量不足，无法进行统计检验")
-
-# %% [markdown]
-# ## 6. 结果导出
-# ### 6.1 保存处理后的数据
-
-# %%
-long_df.to_csv('processed_data.csv', index=False)
-print("数据处理结果已保存")
